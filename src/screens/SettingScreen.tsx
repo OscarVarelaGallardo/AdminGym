@@ -32,7 +32,6 @@ export const SettingsScreen: React.FC = () => {
   const loadGymInfo = async () => {
     try {
       if (!user?.id) {
-        // sin usuario logueado no tiene sentido cargar info de gym
         setLoadingGym(false);
         return;
       }
@@ -40,17 +39,18 @@ export const SettingsScreen: React.FC = () => {
       setLoadingGym(true);
       setError(null);
 
-      // 👇 ahora el backend necesita userId como query param
+      // el backend recibe userId como query param
       const data = await getGymInfo(user.id);
 
       if (!data) {
-        // el usuario aún no tiene gym creado
+        // usuario sin gym aún
         setGymInfo(null);
         setName("");
         setAddress("");
         setSchedule("");
         setPhone("");
         setLogoUrl("");
+        setNotificationsEnabled(true);
         return;
       }
 
@@ -60,7 +60,11 @@ export const SettingsScreen: React.FC = () => {
       setSchedule(data.schedule || "");
       setPhone(data.phone || "");
       setLogoUrl(data.logoUrl || "");
-
+      setNotificationsEnabled(
+        typeof data.notificationsEnabled === "boolean"
+          ? data.notificationsEnabled
+          : true
+      );
     } catch (e: any) {
       console.log(e?.response?.data || e.message);
       setError("No se pudo cargar la información del gimnasio.");
@@ -84,9 +88,6 @@ export const SettingsScreen: React.FC = () => {
       return;
     }
 
-    console.log("Handle save gym info");
-    console.log({ name, address, schedule, phone, logoUrl, user });
-
     try {
       setSaving(true);
       setError(null);
@@ -94,37 +95,32 @@ export const SettingsScreen: React.FC = () => {
       const userId = user.id;
 
       if (!gymInfo) {
-        // 👇 crear nuevo gym
-        console.log("Creating new gym info");
+        // crear nuevo gym
         const body = {
           name: name.trim(),
           address: address.trim(),
           schedule: schedule.trim(),
           phone: phone.trim(),
           logoUrl: logoUrl.trim(),
-          userId, // importante
+          userId,
+          notificationsEnabled,
         };
-        console.log("Create gym info body:", body);
 
         const created = await createGymInfo(body);
-        console.log("Created gym info:", created);
-
         setGymInfo(created);
         Alert.alert("Éxito", "Información del gimnasio creada.");
         return;
       }
 
-      // 👇 actualizar gym existente
-      console.log("Updating existing gym info");
-      //ver el id del gymInfo que ya tenemos
-      console.log("Gym ID:", gymInfo.id);
-      const updated = await updateGymInfo( {
+      // actualizar gym existente
+      const updated = await updateGymInfo({
         name: name.trim(),
         address: address.trim(),
         schedule: schedule.trim(),
         phone: phone.trim(),
         logoUrl: logoUrl.trim(),
-        gymId : gymInfo.id // importante
+        gymId: gymInfo.id,
+        notificationsEnabled,
       });
 
       setGymInfo(updated);
@@ -142,25 +138,31 @@ export const SettingsScreen: React.FC = () => {
       style={styles.container}
       contentContainerStyle={{ paddingBottom: 32 }}
     >
-        
-     
-        <View style={{ flex: 1 , flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-            <View style={{ flex: 1 }}>
-             <Text style={styles.title}>Ajustes</Text>
-            <Text style={styles.subtitle}>
-                Administra tu cuenta y la configuración de tu gimnasio.
-           </Text>
-                </View>
-            <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
-            <Text style={styles.logoutText}>Cerrar sesión</Text>
-            </TouchableOpacity>
- 
+      <View
+        style={{
+          flex: 1,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Ajustes</Text>
+          <Text style={styles.subtitle}>
+            Administra tu cuenta y la configuración de tu gimnasio.
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.logoutButton} onPress={signOut}>
+          <Text style={styles.logoutText}>Cerrar sesión</Text>
+        </TouchableOpacity>
       </View>
+
       {/* CARD INFO GYM */}
-      <View style={styles.card}>
+      <View  style={styles.card}>
         <View style={styles.cardHeaderRow}>
           <Text style={styles.cardTitle}>Información del gimnasio</Text>
-          {loadingGym && <ActivityIndicator size="small" />}
+          {(loadingGym || saving) && <ActivityIndicator size="small" />}
         </View>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
@@ -215,7 +217,7 @@ export const SettingsScreen: React.FC = () => {
         />
 
         <TouchableOpacity
-          style={[styles.saveButton, saving && { opacity: 0.7 }]}
+          style={[styles.saveButton, (saving || loadingGym) && { opacity: 0.7 }]}
           onPress={handleSave}
           disabled={saving || loadingGym}
         >
@@ -229,7 +231,9 @@ export const SettingsScreen: React.FC = () => {
 
       {/* 🔔 NOTIFICACIONES */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Notificaciones</Text>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>Notificaciones</Text>
+        </View>
 
         <View style={styles.notificationRow}>
           <Text style={styles.notificationLabel}>Activas</Text>
@@ -249,14 +253,15 @@ export const SettingsScreen: React.FC = () => {
             />
           </TouchableOpacity>
         </View>
-      </View>
 
-      {/* CARD CUENTA */}
-      
+        <Text style={styles.cardText}>
+          Si desactivas esta opción, dejarás de recibir notificaciones en tiempo
+          real de accesos en tu dashboard.
+        </Text>
+      </View>
     </ScrollView>
   );
 };
-
 
 const styles = StyleSheet.create({
   container: {
@@ -300,15 +305,13 @@ const styles = StyleSheet.create({
   cardText: {
     fontSize: 13,
     color: "#6e6e73",
-    marginTop: 4,
+    marginTop: 8,
   },
   cardUser: {
     fontSize: 14,
     fontWeight: "500",
     marginTop: 4,
   },
-  
- 
   label: {
     fontSize: 13,
     fontWeight: "500",
@@ -390,28 +393,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
   },
   logoutFooter: {
-  position: "absolute",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  paddingHorizontal: 16,
-  paddingVertical: 20,
-  backgroundColor: "#F5F5F7",
-  borderTopWidth: 1,
-  borderTopColor: "#e5e5ea",
-},
-
-logoutButton: {
-  paddingVertical: 14,
-  borderRadius: 999,
-  backgroundColor: "#000",
-  alignItems: "center",
-},
-
-logoutText: {
-  color: "#fff",
-  fontWeight: "600",
-  fontSize: 10,
-  marginHorizontal: 8
-},
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    backgroundColor: "#F5F5F7",
+    borderTopWidth: 1,
+    borderTopColor: "#e5e5ea",
+  },
+  logoutButton: {
+    paddingVertical: 14,
+    borderRadius: 999,
+    backgroundColor: "#000",
+    alignItems: "center",
+  },
+  logoutText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 10,
+    marginHorizontal: 8,
+  },
 });

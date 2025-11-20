@@ -4,12 +4,21 @@ import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { Platform } from "react-native";
 
-export function useAccessLogSocket(onMessage: (msg: any) => void) {
+export function useAccessLogSocket(
+  onMessage: (msg: any) => void,
+  enabled: boolean
+) {
   useEffect(() => {
+    // 👉 si las notificaciones están desactivadas, NO abrimos socket
+    if (!enabled) {
+      console.log("🔕 WebSocket deshabilitado por notificationsEnabled = false");
+      return;
+    }
+
     // 👉 Ajusta IP según dónde corres la app
     const WS_URL =
       Platform.OS === "android"
-        ? "http://10.0.2.2:8080/ws"   // emulador Android
+        ? "http://10.0.2.2:8080/ws" // emulador Android
         : "http://localhost:8080/ws"; // iOS simulador / web
 
     const client = new Client({
@@ -40,7 +49,8 @@ export function useAccessLogSocket(onMessage: (msg: any) => void) {
     client.activate();
 
     return () => {
+      console.log("🧹 Cerrando WebSocket");
       client.deactivate();
     };
-  }, [onMessage]);
+  }, [onMessage, enabled]);
 }

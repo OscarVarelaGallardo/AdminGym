@@ -13,17 +13,20 @@ import {
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import { getDashboardSummary, DashboardSummary } from "../api/dashboard";
-import { useNavigation } from "@react-navigation/native";
+import { getGymInfo } from "../api/gym";
+import { useNavigation, useIsFocused } from "@react-navigation/native"; // 👈 OJO aquí
 import { useAccessLogSocket } from "../hook/useAccessLogSocket";
 
 export const HomeScreen: React.FC = () => {
   const { user, signOut } = useAuth();
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused(); // 👈 saber si esta pantalla está activa
 
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   // 🔄 Animación de la bolita (pull-to-refresh)
   const spinValue = useRef(new Animated.Value(0)).current;
@@ -32,41 +35,40 @@ export const HomeScreen: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
-  const showToast = useCallback(
-    (message: string) => {
-      setToastMsg(message);
-      toastOpacity.setValue(0);
+  const showToast = useCallback((message: string) => {
+    setToastMsg(message);
+    toastOpacity.setValue(0);
 
-      Animated.sequence([
-        Animated.timing(toastOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.delay(2500),
-        Animated.timing(toastOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setToastMsg(null);
-      });
-    },
-    [toastOpacity]
-  );
+    Animated.sequence([
+      Animated.timing(toastOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.delay(2500),
+      Animated.timing(toastOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setToastMsg(null);
+    });
+  }, [toastOpacity]);
 
-  // ✅ ÚNICO handler para los mensajes del socket
+  // 📡 Handler central de notificaciones
   const handleAccessNotification = useCallback(
     (msg: any) => {
-      // 1) Toast bonito
-      const text = `${msg.userName || "Cliente"} registró un acceso (${msg.type})`;
-      console.log("🔔 Nuevo acceso:", msg);
-      showToast(text);
+      // 1) Toast solo si el gym tiene activadas las notificaciones
+      if (notificationsEnabled) {
+        const text = `${msg.userName || "Cliente"} registró un acceso (${msg.type})`;
+        console.log("🔔 Nuevo acceso:", msg);
+        showToast(text);
+      }
 
-      // 2) Actualizar dashboard en tiempo real (optimista)
+      // 2) Actualizar dashboard en tiempo real SIEMPRE
       setSummary((prev) => {
-        if (!prev) return prev; // si aún no cargó el resumen, no hacemos nada
+        if (!prev) return prev;
 
         if (msg.type === "ENTRY") {
           return {
@@ -78,12 +80,13 @@ export const HomeScreen: React.FC = () => {
         return prev;
       });
     },
-    [showToast]
+    [showToast, notificationsEnabled]
   );
 
-  // 📡 Socket usando SOLO este handler
-  useAccessLogSocket(handleAccessNotification);
+  // 📡 WebSocket SIEMPRE activo mientras esta pantalla exista
+  useAccessLogSocket(handleAccessNotification, true);
 
+  // Animación spin
   useEffect(() => {
     if (refreshing) {
       Animated.loop(
@@ -122,12 +125,25 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
-  const loadSummary = async () => {
+  const loadInitialData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await getDashboardSummary();
-      setSummary(data);
+
+      const userId = user?.id;
+
+      const [summaryData, gymData] = await Promise.all([
+        getDashboardSummary(),
+        userId ? getGymInfo(userId) : Promise.resolve(null),
+      ]);
+
+      setSummary(summaryData);
+
+      if (gymData && typeof gymData.notificationsEnabled === "boolean") {
+        setNotificationsEnabled(gymData.notificationsEnabled);
+      } else {
+        setNotificationsEnabled(true); // default
+      }
     } catch (e: any) {
       console.log(e?.response?.data || e.message);
       setError("No se pudo cargar el resumen del dashboard");
@@ -136,9 +152,15 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
+  // 👇 Antes lo tenías con [], ahora recarga cada vez que vuelves a Home
   useEffect(() => {
-    loadSummary();
-  }, []);
+    if (isFocused) {
+      console.log("🏠 HomeScreen enfocado, recargando data...");
+      loadInitialData();
+    }
+    // si usas ESLint de hooks, probablemente te pida meter loadInitialData como dep.
+    // Puedes desactivar la regla aquí si te molesta.
+  }, [isFocused]);
 
   const firstName = user?.name?.split(" ")[0] || user?.name || "Admin";
 
@@ -221,7 +243,7 @@ export const HomeScreen: React.FC = () => {
         {error && !loading && (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={loadSummary}>
+            <TouchableOpacity onPress={loadInitialData} style={styles.retryButton}>
               <Text style={styles.retryText}>Reintentar</Text>
             </TouchableOpacity>
           </View>
@@ -359,7 +381,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     height: 40,
-    marginTop: -16,
+    marginTop: -56,
     marginBottom: 8,
   },
   pullCircle: {

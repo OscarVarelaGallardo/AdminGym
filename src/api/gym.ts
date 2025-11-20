@@ -8,6 +8,7 @@ export interface GymInfo {
   schedule: string;
   phone: string;
   logoUrl: string;
+   notificationsEnabled: boolean;
 }
 
 export interface UpdateGymInfoRequest {
@@ -17,6 +18,7 @@ export interface UpdateGymInfoRequest {
   phone: string;
   logoUrl: string;
   gymId: number;
+  notificationsEnabled: boolean;
 }
 export interface CreateGymInfoRequest {
   name: string;
@@ -25,6 +27,7 @@ export interface CreateGymInfoRequest {
   phone: string;
   logoUrl: string;
   userId: number;
+   notificationsEnabled: boolean;
 }
 
 // GET /api/gym/info  (ajusta al endpoint que tengas)
