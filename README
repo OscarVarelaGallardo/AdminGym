@@ -1,0 +1,73 @@
+# gym-sub-app
+
+Descripción
+-----------
+Aplicación ligera para gestionar subscripciones, clases y miembros de un gimnasio. Diseñada como punto de partida (esqueleto) para implementar funcionalidades como autenticación, gestión de planes, reservas y pagos.
+
+Características
+---------------
+- Gestión de usuarios y perfiles
+- Creación y edición de planes de suscripción
+- Registro y programación de clases
+- Historial de asistencias y pagos
+- API REST básica y UI mínima (según implementación)
+
+Requisitos
+---------
+- Node.js >= 14 (si se usa stack JavaScript) o
+
+Ajustar según la tecnología elegida (base de datos: PostgreSQL, .
+
+Instalación (ejemplo Node.js)
+-----------------------------
+1. Clonar el repositorio:
+    git clone <repo-url>
+2. Entrar al directorio:
+    cd gym-sub-app
+3. Instalar dependencias:
+    npm install
+4. Configurar variables de entorno (ver sección Configuración)
+5. Levantar la aplicación:
+    npm run dev
+
+Uso
+---
+- API: /api/members, /api/plans, /api/classes, /api/subscriptions
+- UI: punto de entrada en / (si aplica)
+- Endpoints de ejemplo para crear usuarios, listar planes y reservar clases.
+
+Configuración
+-------------
+Crear un archivo `.env` en la raíz con las variables necesarias:
+- NODE_ENV=development
+- PORT=3000
+- DATABASE_URL=...
+- JWT_SECRET=...
+
+Estructura sugerida
+-------------------
+- /src - código fuente
+- /src/routes - rutas API
+- /src/controllers - lógica de negocio
+- /src/models - modelos/ORM
+- /migrations - migraciones de base de datos
+- /tests - pruebas
+
+Pruebas
+------
+Ejecutar suite de tests:
+- npm test
+
+Contribuir
+---------
+1. Abrir un issue describiendo el cambio o bug.
+2. Crear una rama con una convención clara (feature/..., fix/...).
+3. Hacer PR con descripción y pruebas cuando aplique.
+
+Licencia
+--------
+Proyecto con licencia MIT (ajustar según necesidad).
+
+Contacto
+-------
+Abrir issues en el repositorio para preguntas o reportes.
