@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.tsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { getDashboardSummary, DashboardSummary } from "../api/dashboard";
 import { useNavigation } from "@react-navigation/native";
+import { useAccessLogSocket } from "../hook/useAccessLogSocket";
 
 export const HomeScreen: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -24,12 +25,67 @@ export const HomeScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 🔄 Animación de la bolita (gira cuando refreshing = true)
+  // 🔄 Animación de la bolita (pull-to-refresh)
   const spinValue = useRef(new Animated.Value(0)).current;
+
+  // 🔔 Toast custom
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+
+  const showToast = useCallback(
+    (message: string) => {
+      setToastMsg(message);
+      toastOpacity.setValue(0);
+
+      Animated.sequence([
+        Animated.timing(toastOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.delay(2500),
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setToastMsg(null);
+      });
+    },
+    [toastOpacity]
+  );
+
+  // ✅ ÚNICO handler para los mensajes del socket
+  const handleAccessNotification = useCallback(
+    (msg: any) => {
+      // 1) Toast bonito
+      const text = `${msg.userName || "Cliente"} registró un acceso (${msg.type})`;
+      console.log("🔔 Nuevo acceso:", msg);
+      showToast(text);
+
+      // 2) Actualizar dashboard en tiempo real (optimista)
+      setSummary((prev) => {
+        if (!prev) return prev; // si aún no cargó el resumen, no hacemos nada
+
+        if (msg.type === "ENTRY") {
+          return {
+            ...prev,
+            entriesToday: (prev.entriesToday || 0) + 1,
+          };
+        }
+
+        return prev;
+      });
+    },
+    [showToast]
+  );
+
+  // 📡 Socket usando SOLO este handler
+  useAccessLogSocket(handleAccessNotification);
 
   useEffect(() => {
     if (refreshing) {
-      // loop infinito mientras refreshing sea true
       Animated.loop(
         Animated.timing(spinValue, {
           toValue: 1,
@@ -39,7 +95,6 @@ export const HomeScreen: React.FC = () => {
         })
       ).start();
     } else {
-      // reseteamos
       spinValue.stopAnimation(() => {
         spinValue.setValue(0);
       });
@@ -52,7 +107,7 @@ export const HomeScreen: React.FC = () => {
   });
 
   const handleRefresh = async () => {
-    console.log("🌀 onRefresh disparado"); // para que veas que sí entra
+    console.log("🌀 onRefresh disparado");
     setRefreshing(true);
     try {
       setError(null);
@@ -96,163 +151,181 @@ export const HomeScreen: React.FC = () => {
       : "-";
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ paddingBottom: 40, flexGrow: 1 }}
-      alwaysBounceVertical={true}
-      bounces={true}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          tintColor="transparent" // oculto el spinner nativo
-          colors={["transparent"]}
-        />
-      }
-    >
-      {/* 🔵 Bolita animada para el pull-to-refresh */}
-      <View style={styles.pullContainer}>
-       
-         
-            <Animated.View style={{ transform: [{ rotate: spin }] }}>
-              <View style={styles.pullCircle}>
-                <Text style={styles.pullText}>⟳</Text>
-              </View>
-            </Animated.View>
-      
-       
-      </View>
-
-      {/* HEADER */}
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.greeting}>Hola, {firstName} </Text>
-          <Text style={styles.subtitle}>Resumen de tu gimnasio</Text>
-        </View>
-        <TouchableOpacity style={styles.avatar} onPress={signOut}>
-          <Text style={styles.avatarText}>
-            {firstName.charAt(0).toUpperCase()}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ESTADO DE CARGA / ERROR */}
-      {loading && (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator />
-          <Text style={styles.helper}>Cargando resumen…</Text>
-        </View>
+    <View style={{ flex: 1 }}>
+      {/* 🔔 Toast flotante */}
+      {toastMsg && (
+        <Animated.View
+          style={[
+            styles.toastContainer,
+            {
+              opacity: toastOpacity,
+              transform: [
+                {
+                  translateY: toastOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-20, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <Text style={styles.toastText}>{toastMsg}</Text>
+        </Animated.View>
       )}
 
-      {error && !loading && (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadSummary}>
-            <Text style={styles.retryText}>Reintentar</Text>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 40, flexGrow: 1 }}
+        alwaysBounceVertical={true}
+        bounces={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="transparent"
+            colors={["transparent"]}
+          />
+        }
+      >
+        {/* 🔵 Bolita animada para el pull-to-refresh */}
+        <View style={styles.pullContainer}>
+          <Animated.View style={{ transform: [{ rotate: spin }] }}>
+            <View style={styles.pullCircle}>
+              <Text style={styles.pullText}>⟳</Text>
+            </View>
+          </Animated.View>
+        </View>
+
+        {/* HEADER */}
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.greeting}>Hola, {firstName} </Text>
+            <Text style={styles.subtitle}>Resumen de tu gimnasio</Text>
+          </View>
+          <TouchableOpacity style={styles.avatar} onPress={signOut}>
+            <Text style={styles.avatarText}>
+              {firstName.charAt(0).toUpperCase()}
+            </Text>
           </TouchableOpacity>
         </View>
-      )}
 
-      {/* SOLO RENDERIZAMOS TARJETAS SI YA HAY SUMMARY */}
-      {summary && !loading && (
-        <>
-          {/* RESUMEN HOY */}
-          <Text style={styles.sectionTitle}>Hoy</Text>
-          <View style={styles.row}>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Entradas</Text>
-              <Text style={styles.cardValue}>{summary.entriesToday}</Text>
-              <Text style={styles.cardHint}>Personas que han entrado</Text>
-            </View>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Ingresos</Text>
-              <Text style={styles.cardValue}>
-                {formatMoney(summary.paymentsTodayAmount)}
-              </Text>
-              <Text style={styles.cardHint}>Pagos registrados hoy</Text>
-            </View>
+        {/* ESTADO DE CARGA / ERROR */}
+        {loading && (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator />
+            <Text style={styles.helper}>Cargando resumen…</Text>
           </View>
+        )}
 
-          <View style={styles.row}>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Nuevos clientes</Text>
-              <Text style={styles.cardValue}>{summary.newClientsToday}</Text>
-              <Text style={styles.cardHint}>Altas del día</Text>
-            </View>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Por vencer (7 días)</Text>
-              <Text style={styles.cardValue}>
-                {summary.expiringMembershipsNext7Days}
-              </Text>
-              <Text style={styles.cardHint}>Membresías por renovar</Text>
-            </View>
+        {error && !loading && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={loadSummary}>
+              <Text style={styles.retryText}>Reintentar</Text>
+            </TouchableOpacity>
           </View>
+        )}
 
-          {/* ESTADO GENERAL */}
-          <Text style={styles.sectionTitle}>Estado general</Text>
-          <View style={styles.largeCard}>
-            <View style={styles.largeCardRow}>
-              <View>
-                <Text style={styles.largeCardLabel}>Clientes activos</Text>
-                <Text style={styles.largeCardValue}>
-                  {summary.activeClients}
-                </Text>
+        {/* SOLO RENDERIZAMOS TARJETAS SI YA HAY SUMMARY */}
+        {summary && !loading && (
+          <>
+            <Text style={styles.sectionTitle}>Hoy</Text>
+            <View style={styles.row}>
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Entradas</Text>
+                <Text style={styles.cardValue}>{summary.entriesToday}</Text>
+                <Text style={styles.cardHint}>Personas que han entrado</Text>
               </View>
-              <View>
-                <Text style={styles.largeCardLabel}>Ingresos del mes</Text>
-                <Text style={styles.largeCardValue}>
-                  {formatMoney(summary.paymentsThisMonthAmount)}
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Ingresos</Text>
+                <Text style={styles.cardValue}>
+                  {formatMoney(summary.paymentsTodayAmount)}
                 </Text>
+                <Text style={styles.cardHint}>Pagos registrados hoy</Text>
               </View>
             </View>
-            <Text style={styles.largeCardHint}>
-              Este es el resumen de la actividad del mes en tu gym.
-            </Text>
-          </View>
-        </>
-      )}
 
-      {/* ACCIONES RÁPIDAS */}
-      <Text style={styles.sectionTitle}>Accesos rápidos</Text>
-      <View style={styles.quickActionsRow}>
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          onPress={() => navigation.navigate("ClientsTab")}
-        >
-          <Text style={styles.quickEmoji}>👥</Text>
-          <Text style={styles.quickTitle}>Clientes</Text>
-          <Text style={styles.quickHint}>Ver y administrar clientes</Text>
-        </TouchableOpacity>
+            <View style={styles.row}>
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Nuevos clientes</Text>
+                <Text style={styles.cardValue}>{summary.newClientsToday}</Text>
+                <Text style={styles.cardHint}>Altas del día</Text>
+              </View>
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>Por vencer (7 días)</Text>
+                <Text style={styles.cardValue}>
+                  {summary.expiringMembershipsNext7Days}
+                </Text>
+                <Text style={styles.cardHint}>Membresías por renovar</Text>
+              </View>
+            </View>
 
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          onPress={() => navigation.navigate("MembershipsTab")}
-        >
-          <Text style={styles.quickEmoji}>🏷️</Text>
-          <Text style={styles.quickTitle}>Membresías</Text>
-          <Text style={styles.quickHint}>Planes y precios</Text>
-        </TouchableOpacity>
-      </View>
+            <Text style={styles.sectionTitle}>Estado general</Text>
+            <View style={styles.largeCard}>
+              <View style={styles.largeCardRow}>
+                <View>
+                  <Text style={styles.largeCardLabel}>Clientes activos</Text>
+                  <Text style={styles.largeCardValue}>
+                    {summary.activeClients}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={styles.largeCardLabel}>Ingresos del mes</Text>
+                  <Text style={styles.largeCardValue}>
+                    {formatMoney(summary.paymentsThisMonthAmount)}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.largeCardHint}>
+                Este es el resumen de la actividad del mes en tu gym.
+              </Text>
+            </View>
+          </>
+        )}
 
-      <View style={styles.quickActionsRow}>
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          onPress={() => navigation.navigate("ClientsTab")}
-        >
-          <Text style={styles.quickEmoji}>➕</Text>
-          <Text style={styles.quickTitle}>Nuevo cliente</Text>
-          <Text style={styles.quickHint}>Registra desde la lista</Text>
-        </TouchableOpacity>
+        {/* ACCIONES RÁPIDAS */}
+        <Text style={styles.sectionTitle}>Accesos rápidos</Text>
+        <View style={styles.quickActionsRow}>
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => navigation.navigate("ClientsTab")}
+          >
+            <Text style={styles.quickEmoji}>👥</Text>
+            <Text style={styles.quickTitle}>Clientes</Text>
+            <Text style={styles.quickHint}>Ver y administrar clientes</Text>
+          </TouchableOpacity>
 
-      <View style={[styles.quickActionCard, { opacity: 0.4 }]}>
-          <Text style={styles.quickEmoji}>📊</Text>
-          <Text style={styles.quickTitle}>Reportes</Text>
-          <Text style={styles.quickHint}>Funcionalidad futura</Text>
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => navigation.navigate("MembershipsTab")}
+          >
+            <Text style={styles.quickEmoji}>🏷️</Text>
+            <Text style={styles.quickTitle}>Membresías</Text>
+            <Text style={styles.quickHint}>Planes y precios</Text>
+          </TouchableOpacity>
         </View>
-      </View>
 
-      <View style={{ height: 24 }} />
-    </ScrollView>
+        <View style={styles.quickActionsRow}>
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => navigation.navigate("ClientsTab")}
+          >
+            <Text style={styles.quickEmoji}>➕</Text>
+            <Text style={styles.quickTitle}>Nuevo cliente</Text>
+            <Text style={styles.quickHint}>Registra desde la lista</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.quickActionCard, { opacity: 0.4 }]}>
+            <Text style={styles.quickEmoji}>📊</Text>
+            <Text style={styles.quickTitle}>Reportes</Text>
+            <Text style={styles.quickHint}>Funcionalidad futura</Text>
+          </View>
+        </View>
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </View>
   );
 };
 
@@ -262,6 +335,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#F5F5F7",
     paddingHorizontal: 16,
     paddingTop: 66,
+  },
+  // 🔔 Toast
+  toastContainer: {
+    position: "absolute",
+    top: 50,
+    left: 16,
+    right: 16,
+    backgroundColor: "#efecec",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    zIndex: 999,
+    elevation: 5,
+  },
+  toastText: {
+    color: "#0a0a0a",
+    fontSize: 13,
+    fontWeight: "500",
   },
   // 🔵 Pull-to-refresh (bolita)
   pullContainer: {
@@ -279,7 +370,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     display: "flex",
-
   },
   pullText: {
     alignSelf: "center",
@@ -288,7 +378,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "600",
     lineHeight: 28,
-
   },
   headerRow: {
     flexDirection: "row",
